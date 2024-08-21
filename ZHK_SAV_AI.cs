@@ -1,11 +1,13 @@
-﻿// #define ZHK_Debug
+// #define ZHK_Debug
 
+using System;
 using SaccFlightAndVehicles;
 using UdonSharp;
 using UnityEngine;
 using VRC.SDKBase;
 using VRC.Udon;
 using VRC.Udon.Common.Interfaces;
+using Random = UnityEngine.Random;
 
 [UdonBehaviourSyncMode(BehaviourSyncMode.Manual)]
 public class ZHK_SAV_AI : UdonSharpBehaviour
@@ -144,29 +146,42 @@ public class ZHK_SAV_AI : UdonSharpBehaviour
     public ZHK_OpenWorldMovementLogic OpenWorldMovementLogic;
 
     // Reserved for Dialogue System
-    // public UdonBehaviour DialogueManager;
-    // public UdonBehaviour[] SpecialNumberTrigger;
-    // public UdonBehaviour[] TriggerIncoming;
-    // public UdonBehaviour[] TriggerTakeOff;
-    // public UdonBehaviour[] TriggerApproach;
-    // public UdonBehaviour[] TriggerTaxi;
-    // public UdonBehaviour[] TriggerLanding;
-    // public UdonBehaviour[] TriggerNavigate;
-    // public UdonBehaviour[] TriggerAttacking;
-    // public UdonBehaviour[] TriggerWeaponsRelease;
-    // public UdonBehaviour[] TriggerOutOfAmmo;
-    // public UdonBehaviour[] TriggerGuns;
-    // public UdonBehaviour[] TriggerTakingDamage;
-    // public UdonBehaviour[] TriggerEject;
-    // public UdonBehaviour[] TriggerLowFuel;
-    // public UdonBehaviour[] TriggerFox;
-    // public UdonBehaviour[] TriggerClear;
-    // public UdonBehaviour[] TriggerDead;
-    // public UdonBehaviour[] TriggerEngineStarting;
-    // public UdonBehaviour[] TriggerTaxiHalt;
-    // public UdonBehaviour[] TriggerTaxiContinue;
-    // public UdonBehaviour[] TriggerEngineOn;
-    // public UdonBehaviour[] TriggerNumbers;
+    [Header("Trigger/Dialogue Manager")]
+    public UdonBehaviour DialogueManager;
+
+    public String CallSign;
+    public UdonBehaviour[] SpecialNumberTrigger;
+    public UdonBehaviour[] TriggerIncoming;
+    public UdonBehaviour[] TriggerLowAltitude;
+    public UdonBehaviour[] TriggerGearDown;
+    public UdonBehaviour[] TriggerGearUp;
+    public UdonBehaviour[] TriggerBeingLocked;
+    public UdonBehaviour[] TriggerTakeOff;
+    public UdonBehaviour[] TriggerApproach;
+    public UdonBehaviour[] TriggerTaxiHolding;
+    public UdonBehaviour[] TriggerTaxiContinue;
+    public UdonBehaviour[] TriggerTaxi;
+    public UdonBehaviour[] TriggerAbortLanding;
+    public UdonBehaviour[] TriggerLanding;
+    public UdonBehaviour[] TriggerNavigate;
+    public UdonBehaviour[] TriggerAttacking;
+    public UdonBehaviour[] TriggerWeaponsRelease;
+    public UdonBehaviour[] TriggerOutOfAmmo;
+    public UdonBehaviour[] TriggerGuns;
+    public UdonBehaviour[] TriggerTakingDamage;
+    public UdonBehaviour[] TriggerMissileDamage;
+    public UdonBehaviour[] TriggerEject;
+    public UdonBehaviour[] TriggerLowFuel;
+    public UdonBehaviour[] TriggerFox;
+    public UdonBehaviour[] TriggerClear;
+    public UdonBehaviour[] TriggerDead;
+    public UdonBehaviour[] TriggerEngineStarting;
+    public UdonBehaviour[] TriggerEngineOn;
+    public UdonBehaviour[] TriggerNumbers;
+    public UdonBehaviour[] TriggerSmoke;
+    public UdonBehaviour[] TriggerSmokeOff;
+    
+    [Header("Misc")]
 
     public float taxiCollisionRadius = 40f;
     public float waitTime = 0f;
@@ -205,7 +220,7 @@ public class ZHK_SAV_AI : UdonSharpBehaviour
     public float gunparticleForward = 30f;
     public Vector3 originalGunparticleForward = Vector3.zero;
 
-
+    
     [Header("AI States")] public bool state_engineon = false;
     public bool state_canopy = false;
 
@@ -220,6 +235,7 @@ public class ZHK_SAV_AI : UdonSharpBehaviour
             _state_combat = value;
             if (value)
             {
+                DialogueExec(TriggerAttacking);
                 if (DFUNC_AAM)
                 {
                     DFUNC_AAM.gameObject.SetActive(true);
@@ -259,12 +275,84 @@ public class ZHK_SAV_AI : UdonSharpBehaviour
 
     public bool state_refueling = false;
     public bool state_airrefueling = false; //reserved
-    public bool state_lowfuel = false; //reserved
+    [FieldChangeCallback(nameof(state_lowfuel))]public bool _state_lowfuel = false; //reserved
+
+    public bool state_lowfuel
+    {
+        get => _state_lowfuel;
+        set
+        {
+            _state_lowfuel = value;
+            if (value)
+            {
+                DialogueExec(TriggerLowFuel);
+            }
+        }
+    }
+
+    [FieldChangeCallback(nameof(state_hold_taxi))]public bool _state_hold_taxi = false;
+
+    public bool state_hold_taxi
+    {
+        get => _state_hold_taxi;
+        set
+        {
+            _state_hold_taxi = value;
+            if (value)
+            {
+                DialogueExec(TriggerTaxiHolding);
+            }
+        }
+    }
     public bool state_smoke = false;
     public bool state_flapsUp = false;
-    public bool state_gearsUp = false;
-    public bool state_landing = false;
-    public bool state_takingoff = false;
+    [FieldChangeCallback(nameof(state_gearsUp))]public bool _state_gearsUp = false;
+
+    public bool state_gearsUp
+    {
+        get => _state_gearsUp;
+        set
+        {
+            _state_gearsUp = value;
+            if (value)
+            {
+                DialogueExec(TriggerGearUp);
+            }
+
+            if (!value)
+            {
+                DialogueExec(TriggerGearDown);
+            }
+        }
+    }
+    [FieldChangeCallback(nameof(state_landing))]public bool _state_landing = false;
+
+    public bool state_landing
+    {
+        get => _state_landing;
+        set
+        {
+            _state_landing = value;
+            if (value)
+            {
+                DialogueExec(TriggerLanding);
+            }
+        }
+    }
+    [FieldChangeCallback(nameof(state_landing))]public bool _state_takingoff = false;
+
+    public bool state_takingoff
+    {
+        get => _state_takingoff;
+        set
+        {
+            _state_takingoff = value;
+            if (value)
+            {
+                DialogueExec(TriggerTakeOff);
+            }
+        }
+    }
     public bool state_escort;
     public bool state_taxiing;
     // AI Will deploy flaps when pulling up to add 'emergency' lift.
@@ -275,24 +363,45 @@ public class ZHK_SAV_AI : UdonSharpBehaviour
         get => _state_pullingup;
         set
         {
-            _state_pullingup = value;
-            if (value)
+            if(_state_pullingup!=value)
             {
-                if (DFUNC_FLAPS && !DFUNC_FLAPS.Flaps)
+                _state_pullingup = value;
+                if (value)
                 {
-                    DFUNC_FLAPS.SetFlapsOn();
+                    DialogueExec(TriggerLowAltitude);
+                    if (DFUNC_FLAPS && !DFUNC_FLAPS.Flaps)
+                    {
+                        DFUNC_FLAPS.SetFlapsOn();
+                    }
                 }
-            }
-            else
-            {
-                if (DFUNC_FLAPS && DFUNC_FLAPS.Flaps)
+                else
                 {
-                    DFUNC_FLAPS.SetFlapsOff();
+                    if (DFUNC_FLAPS && DFUNC_FLAPS.Flaps)
+                    {
+                        DFUNC_FLAPS.SetFlapsOff();
+                    }
                 }
             }
         }
     }
-    public bool state_targeted = false; //reserved
+    [FieldChangeCallback(nameof(state_targeted))]public bool _state_targeted = false; //reserved
+
+    public bool state_targeted
+    {
+        get => _state_targeted;
+        set
+        {
+            if(_state_targeted!=value)
+            {
+                _state_targeted = value;
+                if (value)
+                {
+                    DialogueExec(TriggerBeingLocked);
+                    
+                }
+            }
+        }
+    }
     // AI will launch flares when state_missile is true. 
     [FieldChangeCallback(nameof(state_missile))]public bool _state_missile = false;
 
@@ -303,6 +412,7 @@ public class ZHK_SAV_AI : UdonSharpBehaviour
             _state_missile = value;
             if (value)
             {
+                DialogueExec(TriggerIncoming);
                 directionEvade = Random.Range(0, 4);
             }
             else
@@ -381,6 +491,7 @@ public class ZHK_SAV_AI : UdonSharpBehaviour
     private float raycastTerrainTime = .4f;
     private float raycastTerrainTimer = 0f;
     public float minimumPullupDist = 3000f;
+    public float DISTPULL = 0;
     public LayerMask TerrainLayers;
     public float Limit = 5f;
     private bool breakScan = false;
@@ -438,9 +549,37 @@ public class ZHK_SAV_AI : UdonSharpBehaviour
         }
     }
 
+    
+    public void eject()
+    {
+        DialogueExec(TriggerEject);
+    }
+
     public void SFEXT_L_AAMTargeted()
     {
-        // reserved for dialogue 
+        DialogueExec(TriggerBeingLocked);
+    }
+    
+    public void SFEXT_G_MissileHit25()
+    {
+        CallDamageMissile();
+    }
+    public void SFEXT_G_MissileHit50()
+    {
+        CallDamageMissile();
+    }
+    public void SFEXT_G_MissileHit75()
+    {
+        CallDamageMissile();
+    }
+    public void SFEXT_G_MissileHit100()
+    {
+        CallDamageMissile();
+    }
+
+    public void CallDamageMissile()
+    {
+        DialogueExec(TriggerMissileDamage);
     }
 
 
@@ -531,6 +670,16 @@ public class ZHK_SAV_AI : UdonSharpBehaviour
         air_combat_target = null;
         currentWaypointSpeed = 0;
         ThrottleInput = .75f;
+    }
+
+    public void ZHKEXT_T_RWRWarning_net()
+    {
+        state_targeted = true;
+    }
+
+    public void ZHKEXT_T_RWRClear_net()
+    {
+        state_targeted = false;
     }
 
     public void SFEXT_G_ReAppear()
@@ -666,6 +815,7 @@ public class ZHK_SAV_AI : UdonSharpBehaviour
                             if (!ExecuteEventsOnStart)
                             {  
                                 DFUNC_ENGINETOGGLE.KeyboardInput();
+                                DialogueExec(TriggerEngineStarting);
                                 waitTime = DFUNC_ENGINETOGGLE.StartUpTime;
                             }
                             else
@@ -796,6 +946,7 @@ public class ZHK_SAV_AI : UdonSharpBehaviour
                 {
                     if (SAV.MissilesIncomingHeat > 0 || SAV.MissilesIncomingOther > 0 || SAV.MissilesIncomingRadar > 0)
                     {
+                        if(!state_missile)
                         state_missile = true;
                     }
                     else
@@ -968,7 +1119,7 @@ public class ZHK_SAV_AI : UdonSharpBehaviour
                                             missileCooldownTimer = 0f;
                                             if (DFUNC_AAM)
                                             {
-                                                // DFUNC_AAM.AAMFire++;
+                                                DialogueExec(TriggerFox);
                                                 DFUNC_AAM.RequestSerialization();
                                                 DFUNC_AAM.SendCustomNetworkEvent(NetworkEventTarget.All,
                                                     nameof(DFUNC_AAM.LaunchAAM));
@@ -992,6 +1143,7 @@ public class ZHK_SAV_AI : UdonSharpBehaviour
                                 {
                                     if (DFUNC_GUN && !DFUNC_GUN.Firing)
                                     {
+                                        DialogueExec(TriggerGuns);
                                         DFUNC_GUN.Firing = true;
                                         DFUNC_GUN.GunDamageParticle.gameObject.SetActive(true);
                                         DFUNC_GUN.RequestSerialization();
@@ -1040,6 +1192,7 @@ public class ZHK_SAV_AI : UdonSharpBehaviour
                             }
                             else
                             {
+                                if(state_hold_taxi) state_hold_taxi = false;
                                 TaxiWaitTime = -1f;
                             }
                         }
@@ -1073,6 +1226,7 @@ public class ZHK_SAV_AI : UdonSharpBehaviour
                             Color.red);
                         if (hit.collider != null)
                         {
+                            if(!state_hold_taxi) state_hold_taxi = true;
                             TaxiWaitTimer = 0;
                             TaxiWaitTime = 5f;
                         }
@@ -1184,6 +1338,21 @@ public class ZHK_SAV_AI : UdonSharpBehaviour
             }
         }
     }
+    public void DialogueExec(UdonBehaviour[] Dialogue, bool forced)
+    {
+        if (!state_engineon && !forced || Dialogue.Length==0) return;
+        int RandomInt = Random.Range(0, Dialogue.Length);
+        if(Dialogue[RandomInt]!=null)
+        {
+            Dialogue[RandomInt].SetProgramVariable("SAVAI_Callsign", CallSign);
+            Dialogue[RandomInt].SendCustomEvent("runEventAI");
+        }
+    }
+    
+    public void DialogueExec(UdonBehaviour[] Dialogue)
+    {
+        DialogueExec(Dialogue, false);
+    }
 
     public void processDetectTargets()
     {
@@ -1227,9 +1396,10 @@ public class ZHK_SAV_AI : UdonSharpBehaviour
                     {
                         if (targetList)
                         {
+                            SaccAirVehicle[] tgtList = new SaccAirVehicle[0];
                             foreach (SaccAirVehicle x in targetList.TargetList)
                             {
-                                if (x!=null && test == x && !test.Taxiing && test.Health > 0)
+                                if (x!=null && test == x && !test.Taxiing && test.Health > 0 && x.EngineOn) // for now.
                                 {
                                     if (test.Occupied)
                                     {
@@ -1256,6 +1426,8 @@ public class ZHK_SAV_AI : UdonSharpBehaviour
                                     break;
                                 }
                             }
+
+                            // int Random = UnityEngine.Random.Range(0, tgtList.Length);
                         }
                     }
                 }
@@ -1273,10 +1445,14 @@ public class ZHK_SAV_AI : UdonSharpBehaviour
             if (state_smoke)
             {
                 DFUNC_SMOKE.SmokeOn = true;
+                DialogueExec(TriggerSmoke);
+                //execTrigger(smoke)
             }
             else
             {
                 DFUNC_SMOKE.SmokeOn = false;
+                DialogueExec(TriggerSmokeOff);
+                //execTrigger(smokeOff)
             }
         }
     }
@@ -1426,7 +1602,7 @@ public class ZHK_SAV_AI : UdonSharpBehaviour
             }
             
             targetVectors = FirstOrderIntercept(AircraftTransform.position, SAV.AirVel, currentSpeed,
-                dir, air_combat_target.AirVel);
+                dir, Vector3.zero);
         }else 
         if (state_combat)
         {
@@ -1543,11 +1719,12 @@ public class ZHK_SAV_AI : UdonSharpBehaviour
         }
         
         Debug.DrawLine(AircraftTransform.position, dir * minimumPullupDist * (currentSpeed / minimumPullupDist), Color.red);
-        
+
         if (Physics.Raycast(AircraftTransform.position, dir, out terrainCheck, minimumPullupDist * (currentSpeed / minimumPullupDist),
             TerrainLayers, QueryTriggerInteraction.Ignore))
         {
-            if (Vector3.Distance(terrainCheck.point, AircraftTransform.position) / currentSpeed < Limit)
+            DISTPULL = Vector3.Distance(terrainCheck.point, AircraftTransform.position);
+            if (DISTPULL / currentSpeed < Limit)
             {
                 state_pullingup = true;
                 Debug.DrawLine(AircraftTransform.position, dir * minimumPullupDist, Color.yellow);
