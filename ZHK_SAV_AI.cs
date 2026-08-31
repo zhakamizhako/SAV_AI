@@ -84,7 +84,7 @@ public class ZHK_SAV_AI : UdonSharpBehaviour
         get => _isActiveAI;
     }
 
-    public float distanceToChangeWaypoint = 100f; //meters
+    public float distanceToChangeWaypoint = 200f; //meters
     public float distanceToChangeWaypointTaxi = 50;
 
     public SaccAirVehicle SAV;
@@ -192,11 +192,11 @@ public class ZHK_SAV_AI : UdonSharpBehaviour
     public float TaxiWaitTimer = 0f;
     //new vars
 
-    public float MinimumAnglePitch = 100f;
-    public float MinimumAngleYaw = 100f;
-    public float MinimumAngleRoll = 800f;
+    public float MinimumAnglePitch = 1f;
+    public float MinimumAngleYaw = 0.4f;
+    public float MinimumAngleRoll = 1.5f;
 
-    public float YawAngleMax = 25;
+    public float YawAngleMax = 10;
 
     public float currentWaypointSpeed = 0f;
     public bool returnToOrigin = true;
@@ -214,8 +214,8 @@ public class ZHK_SAV_AI : UdonSharpBehaviour
     public Vector3 ControlInputs;
     
     public float shouldRollAngle = 0f;
-    public float maxRollAngle = 90f;
-    public float rollStrength = 1000f;
+    public float maxRollAngle = -270;
+    public float rollStrength = 1.2f;
 
     public float gunparticleForward = 30f;
     public Vector3 originalGunparticleForward = Vector3.zero;
@@ -223,6 +223,14 @@ public class ZHK_SAV_AI : UdonSharpBehaviour
     
     [Header("AI States")] public bool state_engineon = false;
     public bool state_canopy = false;
+
+    [Tooltip("Play recorded flight from ZHK_FlightRecorder")]
+    public bool state_recorded = false;
+
+    [Header("Flight Recorder")]
+    public ZHK_FlightRecorder flightRecorder;
+    private int recordedWaypointIndex = 0;
+    private float recordedPlaybackTimer = 0f;
 
     [UdonSynced()] [FieldChangeCallback(nameof(state_combat))]
     public bool _state_combat = false;
@@ -540,7 +548,8 @@ public class ZHK_SAV_AI : UdonSharpBehaviour
         if (SAV.Occupied)
         {
             SAV.Occupied = false;
-            SAV.SFEXT_O_RespawnButton();
+            SAV.EntityControl.SendEventToExtensions("SFEXT_G_ReAppear");
+            // SAV.SFEXT_G_ReAppear();
             BrakeInput = 0;
             RollInput = 0;
             YawInput = 0;
@@ -571,7 +580,7 @@ public class ZHK_SAV_AI : UdonSharpBehaviour
     public void SFEXT_G_MissileHit75()
     {
         CallDamageMissile();
-    }
+    } 
     public void SFEXT_G_MissileHit100()
     {
         CallDamageMissile();
@@ -586,7 +595,7 @@ public class ZHK_SAV_AI : UdonSharpBehaviour
     public void SFEXT_L_EntityStart()
     {
         startAI = isActiveAI;
-        ENTITY = SAV.EntityControl;
+        if(!ENTITY) ENTITY = SAV.EntityControl;
         SAVU = SAV.gameObject.GetComponent<UdonBehaviour>();
         EFFECTS = (SAV_EffectsController) ENTITY.GetExtention(GetUdonTypeName<SAV_EffectsController>());
 
@@ -635,10 +644,10 @@ public class ZHK_SAV_AI : UdonSharpBehaviour
 
         gameObject.SetActive(true);
 
-        if (OpenWorldMovementLogic != null)
-        {
-            OpenWorldMovementLogic.AI = true;
-        }
+        // if (OpenWorldMovementLogic != null)
+        // {
+        //     OpenWorldMovementLogic.AI = true;
+        // }
     }
 
     public void SFEXT_G_Dead()
@@ -778,7 +787,7 @@ public class ZHK_SAV_AI : UdonSharpBehaviour
                     }
 
                     setOnce = true;
-                    SAV.SFEXT_L_KeepAwake();
+                    SAV.EntityControl.SendEventToExtensions("SFEXT_L_KeepAwake");
 
                     if (BRAKES)
                     {
@@ -914,11 +923,11 @@ public class ZHK_SAV_AI : UdonSharpBehaviour
                         SAV.Occupied = true;
                         SAV.Asleep = false;
                         SAVU.SetProgramVariable("DisablePhysicsAndInputs", 0);
-                        SAV.SFEXT_L_KeepAwake();
+                        SAV.EntityControl.SendEventToExtensions("SFEXT_L_KeepAwake");
                         if (useAsPilot) SAV.SFEXT_O_PilotEnter();
                         SAV.EntityControl.SendEventToExtensions("SFEXT_G_PilotEnter");
                         UpdateWaypoint();
-                        SAV.SetCollidersLayer(SAV.OutsideVehicleLayer); // set them back to solid ffs.
+                        SAV.SetCollidersLayer(SAV.EntityControl.OutsideVehicleLayer); // set them back to solid ffs.
                         // SAV.Piloting = false;
                         // SAV.DisablePhysicsAndInputs = 0;
                     }
@@ -940,6 +949,12 @@ public class ZHK_SAV_AI : UdonSharpBehaviour
                         state_taxiing = false;
                         taxiCorrectionTimer = 0f;
                     }
+                }
+
+                // RECORDED FLIGHT PLAYBACK MODE
+                if (state_recorded && flightRecorder != null && SAV.EngineOn)
+                {
+                    ProcessRecordedPlayback();
                 }
 
                 if (!state_taxiing)
@@ -964,7 +979,8 @@ public class ZHK_SAV_AI : UdonSharpBehaviour
                         {
                             if (FlareTimer > FlareTime)
                             {
-                                DFUNC_FLARES.KeyboardInput();
+                                // DFUNC_FLARES.KeyboardInput();
+                                DFUNC_FLARES.LaunchFlare_Owner();
                                 FlareTimer = 0f;
                             }
                             else
@@ -1069,7 +1085,7 @@ public class ZHK_SAV_AI : UdonSharpBehaviour
                             air_combat_target.transform.position);
 
                         // Do something about combatspeed near
-                        if (air_combat_target!=null && air_combat_target.dead)
+                        if (air_combat_target!=null && air_combat_target.Health <= 0 )
                         {
                             ClearCombat();
 
@@ -1100,14 +1116,17 @@ public class ZHK_SAV_AI : UdonSharpBehaviour
                                 // {
                                 //     targetAngle = -targetAngle; // Target is on the left side
                                 // }
+                                bool sendTargeted = (bool) DFUNC_AAM.GetProgramVariable("AAMHasTarget");
+                                
                                 if (distanceToTarget > minMissileRange && distanceToTarget < maxMissileRange)
                                 {
                                     if (targetAngleMissile < MaxAngleMissile)
                                     {
+                                        
 
-                                        if (DFUNC_AAM && !DFUNC_AAM.sendtargeted)
+                                        if (DFUNC_AAM && !sendTargeted)
                                         {
-                                            DFUNC_AAM.sendtargeted = true;
+                                            sendTargeted = true;
                                             air_combat_target.EntityControl.SendEventToExtensions(
                                                 "ZHKEXT_T_RWRWarning_net");
                                             // Place the sacc warning here. Idk it sucks atm.
@@ -1122,16 +1141,16 @@ public class ZHK_SAV_AI : UdonSharpBehaviour
                                                 DialogueExec(TriggerFox);
                                                 DFUNC_AAM.RequestSerialization();
                                                 DFUNC_AAM.SendCustomNetworkEvent(NetworkEventTarget.All,
-                                                    nameof(DFUNC_AAM.LaunchAAM));
+                                                    "LaunchAAM_Owner");
                                             }
                                         }
                                     }
                                     else
                                     {
 
-                                        if (DFUNC_AAM && DFUNC_AAM.sendtargeted)
+                                        if (DFUNC_AAM && sendTargeted)
                                         {
-                                            DFUNC_AAM.sendtargeted = false;
+                                            sendTargeted = false;
                                             air_combat_target.EntityControl.SendEventToExtensions(
                                                 "ZHKEXT_T_RWRClear_net");
                                             // Place the sacc warning clear here. 
@@ -1408,7 +1427,7 @@ public class ZHK_SAV_AI : UdonSharpBehaviour
                                         air_combat_target_aamTarget = SpherecastStuff[scanIndex].collider.gameObject;
                                         if (DFUNC_AAM)
                                         {
-                                            int dfuncAAMTarget = 0;
+                                            ushort dfuncAAMTarget = 0;
                                             foreach (GameObject xx in DFUNC_AAM.AAMTargets)
                                             {
                                                 if (xx == air_combat_target_aamTarget)
@@ -1419,7 +1438,7 @@ public class ZHK_SAV_AI : UdonSharpBehaviour
                                                     break;
                                                 }
 
-                                                dfuncAAMTarget = dfuncAAMTarget + 1;
+                                                dfuncAAMTarget = dfuncAAMTarget++;
                                             }
                                         }   
                                     }
@@ -1462,7 +1481,7 @@ public class ZHK_SAV_AI : UdonSharpBehaviour
         // state_smoke = !state_smoke;
         if (DFUNC_FLARES != null)
         {
-            DFUNC_FLARES.SendCustomNetworkEvent(NetworkEventTarget.All, nameof(DFUNC_FLARES.KeyboardInput));
+            DFUNC_FLARES.SendCustomNetworkEvent(NetworkEventTarget.All, nameof(DFUNC_FLARES.LaunchFlare_Owner));
         }
     }
 
@@ -1651,7 +1670,7 @@ public class ZHK_SAV_AI : UdonSharpBehaviour
 
             if (state_pullingup)
             {
-                targetVectors.y = AircraftTransform.position.y + minimumPullupDist; // forcing to pull up for now. 
+                targetVectors.y = (AircraftTransform.position.y + minimumPullupDist)*(currentSpeed); // forcing to pull up for now. 
             }
         }
 
@@ -1821,5 +1840,123 @@ public class ZHK_SAV_AI : UdonSharpBehaviour
             return 0f;
         else //determinant = 0; one intercept path, pretty much never happens
             return Mathf.Max(-b / (2f * a), 0f); //don't shoot back in time
+    }
+
+    // RECORDED FLIGHT PLAYBACK METHODS
+    public void ProcessRecordedPlayback()
+    {
+        if (flightRecorder == null || flightRecorder.recordedWaypointCount == 0)
+        {
+            Debug.LogWarning("[ZHK_SAV_AI] No recorded data available for playback!");
+            state_recorded = false;
+            return;
+        }
+
+        // Update timer
+        recordedPlaybackTimer += Time.deltaTime;
+
+        // Check if we should advance to the next waypoint
+        if (recordedPlaybackTimer >= flightRecorder.recordingInterval)
+        {
+            recordedPlaybackTimer = 0f;
+            recordedWaypointIndex++;
+
+            // Loop back to start if we've reached the end
+            if (recordedWaypointIndex >= flightRecorder.recordedWaypointCount)
+            {
+                recordedWaypointIndex = 0;
+                Debug.Log("[ZHK_SAV_AI] Recorded playback loop completed, restarting...");
+            }
+        }
+
+        // Get recorded data for current waypoint
+        Vector3 targetPos = flightRecorder.GetRecordedPosition(recordedWaypointIndex);
+        Vector3 targetRot = flightRecorder.GetRecordedRotation(recordedWaypointIndex);
+        float targetThrottle = flightRecorder.GetRecordedThrottle(recordedWaypointIndex);
+        bool targetFlaps = flightRecorder.GetRecordedFlaps(recordedWaypointIndex);
+        float targetBrakes = flightRecorder.GetRecordedBrakes(recordedWaypointIndex);
+
+        // Apply recorded throttle
+        ThrottleInput = Mathf.Lerp(ThrottleInput, targetThrottle, Time.deltaTime * 2f);
+
+        // Apply recorded flaps
+        if (DFUNC_FLAPS != null)
+        {
+            if (targetFlaps && !DFUNC_FLAPS.Flaps)
+            {
+                DFUNC_FLAPS.SetFlapsOn();
+            }
+            else if (!targetFlaps && DFUNC_FLAPS.Flaps)
+            {
+                DFUNC_FLAPS.SetFlapsOff();
+            }
+        }
+
+        // Apply recorded brakes
+        if (BRAKES != null)
+        {
+            BrakeInput = Mathf.Lerp(BrakeInput, targetBrakes, Time.deltaTime * 4f);
+        }
+
+        // Navigate towards recorded position
+        // Use the moveLogic to fly towards the recorded position
+        // Create a temporary transform target
+        Vector3 directionToTarget = targetPos - AircraftTransform.position;
+        float distanceToTarget = directionToTarget.magnitude;
+
+        // If we're close to the recorded position, move to next waypoint faster
+        if (distanceToTarget < 20f)
+        {
+            recordedPlaybackTimer += Time.deltaTime * 2f; // Speed up progression
+        }
+
+        // Use rotation as the "up" direction for the target
+        Quaternion targetQuaternion = Quaternion.Euler(targetRot);
+        Vector3 targetUp = targetQuaternion * Vector3.up;
+
+        // Calculate control inputs to reach target position and rotation
+        // Simplified approach: point towards target position
+        float checkUp = Vector3.Dot(AircraftTransform.up, directionToTarget);
+        float checkRight = Vector3.Dot(AircraftTransform.right, directionToTarget);
+
+        float returnPitch = Mathf.Clamp(checkUp / ((MinimumAnglePitch * distanceToTarget)), -1, 1);
+        float returnYaw = Mathf.Clamp(checkRight / ((MinimumAngleYaw * distanceToTarget)), -1, 1);
+        float returnRoll = Mathf.Clamp((checkRight / (MinimumAngleRoll * distanceToTarget)) / rollStrength, -1, 1);
+
+        // Apply control inputs with smoothing
+        PitchInput = Mathf.Lerp(PitchInput, -returnPitch, Time.deltaTime * TimeLerper);
+        YawInput = Mathf.Lerp(YawInput, returnYaw, Time.deltaTime * TimeLerper);
+        RollInput = Mathf.Lerp(RollInput, -returnRoll, Time.deltaTime * TimeLerper);
+
+        // Debug visualization
+        Debug.DrawLine(AircraftTransform.position, targetPos, Color.green);
+    }
+
+    public void StartRecordedPlayback()
+    {
+        if (flightRecorder == null)
+        {
+            Debug.LogError("[ZHK_SAV_AI] Flight recorder reference is missing!");
+            return;
+        }
+
+        if (flightRecorder.recordedWaypointCount == 0)
+        {
+            Debug.LogWarning("[ZHK_SAV_AI] No recorded waypoints to play back!");
+            return;
+        }
+
+        Debug.Log($"[ZHK_SAV_AI] Starting recorded playback with {flightRecorder.recordedWaypointCount} waypoints.");
+        state_recorded = true;
+        recordedWaypointIndex = 0;
+        recordedPlaybackTimer = 0f;
+    }
+
+    public void StopRecordedPlayback()
+    {
+        Debug.Log("[ZHK_SAV_AI] Stopping recorded playback.");
+        state_recorded = false;
+        recordedWaypointIndex = 0;
+        recordedPlaybackTimer = 0f;
     }
 }
